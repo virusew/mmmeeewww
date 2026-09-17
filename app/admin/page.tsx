@@ -390,6 +390,11 @@ export default function AdminPage() {
                 <div className="flex flex-wrap gap-3 items-center text-sm text-gray-400 mb-3">
                   <span>🕐 {new Date(wish.created_at).toLocaleString('ru-RU')}</span>
                   <span>❤️ {wish.likes}</span>
+                  {wish.tag && (
+                    <span className="text-xs bg-gray-700 px-2 py-1 rounded">
+                      🏷️ {wish.tag}
+                    </span>
+                  )}
                   <span className="text-xs bg-gray-700 px-2 py-1 rounded">
                     🆔 {wish.author_id}
                   </span>
