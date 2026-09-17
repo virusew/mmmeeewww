@@ -115,22 +115,34 @@ export default function Home() {
       .channel('wishes-realtime')
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'wishes' },
+        { event: '*', schema: 'public', table: 'wishes' },
         (payload) => {
-          const newWish = payload.new as any;
-          if (newWish.is_approved) {
-            setWishes((prev) => {
-              if (prev.some((w) => w.id === newWish.id)) return prev;
-              return [newWish, ...prev];
-            });
-            setNewIds((prev) => new Set(prev).add(newWish.id));
-            setTimeout(() => {
-              setNewIds((prev) => {
-                const copy = new Set(prev);
-                copy.delete(newWish.id);
-                return copy;
+          if (payload.eventType === 'INSERT') {
+            const newWish = payload.new as any;
+            if (newWish.is_approved) {
+              setWishes((prev) => {
+                if (prev.some((w) => w.id === newWish.id)) return prev;
+                return [newWish, ...prev];
               });
-            }, 5000);
+              setNewIds((prev) => new Set(prev).add(newWish.id));
+              setTimeout(() => {
+                setNewIds((prev) => {
+                  const copy = new Set(prev);
+                  copy.delete(newWish.id);
+                  return copy;
+                });
+              }, 5000);
+            }
+          } else if (payload.eventType === 'UPDATE') {
+            // Обновляем сообщение (например, появился ответ админа)
+            const updated = payload.new as any;
+            setWishes((prev) =>
+              prev.map((w) =>
+                w.id === updated.id
+                  ? { ...w, admin_reply: updated.admin_reply, admin_replied_at: updated.admin_replied_at }
+                  : w
+              )
+            );
           }
         }
       )
@@ -154,7 +166,6 @@ export default function Home() {
       ref={containerRef}
       className="min-h-screen bg-gradient-to-br from-neutral-900 via-black to-neutral-800 relative overflow-hidden"
     >
-      {/* Большое красное свечение за курсором */}
       <div
         className="pointer-events-none fixed w-[700px] h-[700px] rounded-full"
         style={{
@@ -166,7 +177,6 @@ export default function Home() {
         }}
       />
 
-      {/* Маленькое красное свечение */}
       <div
         className="pointer-events-none fixed w-[300px] h-[300px] rounded-full"
         style={{
@@ -180,7 +190,6 @@ export default function Home() {
 
       <div className="relative z-10 max-w-2xl mx-auto px-6 py-16">
 
-        {/* Заголовок + кнопки шаринга */}
         <div className="text-center mb-12">
           <h1 className="text-3xl font-light text-neutral-100 tracking-tight mb-4">
             Анонимные сообщения
@@ -207,7 +216,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Форма */}
         <div
           className={`bg-neutral-900/70 backdrop-blur-sm rounded-2xl border transition-all duration-500 ease-out mb-4 ${
             focused
@@ -244,7 +252,6 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Таймер кулдауна */}
         {cooldown > 0 && (
           <div
             className="mb-6 bg-neutral-900/60 backdrop-blur-sm rounded-xl border border-red-500/20 p-4 overflow-hidden"
@@ -267,7 +274,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* Сообщение об успехе/ошибке */}
         {message && cooldown === 0 && (
           <div
             className={`mb-6 text-center text-sm font-light py-3 px-4 rounded-xl border transition-all duration-300 ${
@@ -281,7 +287,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* Лента */}
         <div className="space-y-3 mt-8">
           {wishes.length === 0 && (
             <p className="text-center text-neutral-600 text-sm py-12 font-light">
@@ -308,6 +313,19 @@ export default function Home() {
                   </span>
                 )}
                 <p className="text-neutral-200 leading-relaxed">{wish.content}</p>
+
+                {/* Ответ администрации */}
+                {wish.admin_reply && (
+                  <div className="mt-3 pl-4 border-l-2 border-red-500/40">
+                    <div className="text-[10px] text-red-400 uppercase tracking-wider mb-1">
+                      Ответ администрации
+                    </div>
+                    <p className="text-neutral-300 text-sm leading-relaxed">
+                      {wish.admin_reply}
+                    </p>
+                  </div>
+                )}
+
                 <div className="flex justify-between items-center mt-3 text-xs text-neutral-500 font-light">
                   <span>{new Date(wish.created_at).toLocaleString('ru-RU')}</span>
                   <span className="transition-colors duration-300 hover:text-red-400">

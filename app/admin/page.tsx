@@ -15,8 +15,8 @@ export default function AdminPage() {
   const [wishes, setWishes] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [replyTexts, setReplyTexts] = useState<Record<string, string>>({});
 
-  // Проверяем, вошёл ли уже
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       if (data.user) {
@@ -26,7 +26,6 @@ export default function AdminPage() {
     });
   }, []);
 
-  // Вход
   async function login() {
     setLoading(true);
     setError('');
@@ -44,14 +43,12 @@ export default function AdminPage() {
     setLoading(false);
   }
 
-  // Выход
   async function logout() {
     await supabase.auth.signOut();
     setUser(null);
     setWishes([]);
   }
 
-  // Загрузка всех желаний (включая author_id)
   async function loadWishes() {
     const { data, error } = await supabase
       .from('wishes')
@@ -64,9 +61,8 @@ export default function AdminPage() {
     setWishes(data || []);
   }
 
-  // Удалить желание
   async function deleteWish(id: string) {
-    if (!confirm('Удалить это желание?')) return;
+    if (!confirm('Удалить это сообщение?')) return;
     const { error } = await supabase.from('wishes').delete().eq('id', id);
     if (error) {
       alert('Ошибка удаления: ' + error.message);
@@ -75,7 +71,6 @@ export default function AdminPage() {
     loadWishes();
   }
 
-  // Скрыть/показать
   async function toggleApprove(id: string, current: boolean) {
     const { error } = await supabase
       .from('wishes')
@@ -88,7 +83,28 @@ export default function AdminPage() {
     loadWishes();
   }
 
-  // Если не вошёл — показываем форму входа
+  async function saveReply(id: string) {
+    const reply = (replyTexts[id] || '').trim();
+    const { error } = await supabase
+      .from('wishes')
+      .update({
+        admin_reply: reply || null,
+        admin_replied_at: reply ? new Date().toISOString() : null,
+      })
+      .eq('id', id);
+    if (error) {
+      alert('Ошибка: ' + error.message);
+      return;
+    }
+    // Очищаем поле ввода
+    setReplyTexts((prev) => {
+      const copy = { ...prev };
+      delete copy[id];
+      return copy;
+    });
+    loadWishes();
+  }
+
   if (!user) {
     return (
       <main className="min-h-screen bg-gray-900 flex items-center justify-center p-6">
@@ -123,7 +139,6 @@ export default function AdminPage() {
     );
   }
 
-  // Если вошёл — панель управления
   return (
     <main className="min-h-screen bg-gray-900 p-6">
       <div className="max-w-4xl mx-auto">
@@ -140,9 +155,7 @@ export default function AdminPage() {
           </div>
         </div>
 
-        <p className="text-gray-400 mb-4">
-          Всего желаний: {wishes.length}
-        </p>
+        <p className="text-gray-400 mb-4">Всего сообщений: {wishes.length}</p>
 
         <div className="space-y-3">
           {wishes.length === 0 && (
@@ -156,6 +169,16 @@ export default function AdminPage() {
               }`}
             >
               <p className="text-white text-lg mb-2">{wish.content}</p>
+
+              {wish.admin_reply && (
+                <div className="mb-3 pl-3 border-l-2 border-blue-500/40">
+                  <div className="text-[10px] text-blue-400 uppercase tracking-wider mb-1">
+                    Твой ответ
+                  </div>
+                  <p className="text-gray-300 text-sm">{wish.admin_reply}</p>
+                </div>
+              )}
+
               <div className="flex flex-wrap gap-3 items-center text-sm text-gray-400 mb-3">
                 <span>🕐 {new Date(wish.created_at).toLocaleString('ru-RU')}</span>
                 <span>❤️ {wish.likes}</span>
@@ -166,19 +189,38 @@ export default function AdminPage() {
                   <span className="text-yellow-400">⚠️ Скрыто</span>
                 )}
               </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => toggleApprove(wish.id, wish.is_approved)}
-                  className="px-3 py-1 bg-yellow-600 text-white rounded text-sm hover:bg-yellow-700"
-                >
-                  {wish.is_approved ? '🙈 Скрыть' : '👁️ Показать'}
-                </button>
-                <button
-                  onClick={() => deleteWish(wish.id)}
-                  className="px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700"
-                >
-                  🗑️ Удалить
-                </button>
+
+              {/* Поле для ответа админа */}
+              <div className="mt-3 pt-3 border-t border-gray-700">
+                <textarea
+                  placeholder="Ответить анонимно (видно всем)..."
+                  value={replyTexts[wish.id] ?? wish.admin_reply ?? ''}
+                  onChange={(e) =>
+                    setReplyTexts((prev) => ({ ...prev, [wish.id]: e.target.value }))
+                  }
+                  rows={2}
+                  className="w-full p-2 rounded-lg bg-gray-700 text-white text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 mb-2"
+                />
+                <div className="flex gap-2 flex-wrap">
+                  <button
+                    onClick={() => saveReply(wish.id)}
+                    className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700"
+                  >
+                    💬 Сохранить ответ
+                  </button>
+                  <button
+                    onClick={() => toggleApprove(wish.id, wish.is_approved)}
+                    className="px-3 py-1 bg-yellow-600 text-white rounded text-sm hover:bg-yellow-700"
+                  >
+                    {wish.is_approved ? '🙈 Скрыть' : '👁️ Показать'}
+                  </button>
+                  <button
+                    onClick={() => deleteWish(wish.id)}
+                    className="px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700"
+                  >
+                    🗑️ Удалить
+                  </button>
+                </div>
               </div>
             </div>
           ))}
