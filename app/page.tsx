@@ -16,6 +16,7 @@ export default function Home() {
   const [cooldown, setCooldown] = useState(0);
   const [message, setMessage] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+  const [newIds, setNewIds] = useState<Set<string>>(new Set());
   const containerRef = useRef<HTMLDivElement>(null);
 
   async function loadWishes() {
@@ -64,9 +65,7 @@ export default function Home() {
       }
     } else {
       setText('');
-      loadWishes();
       setMessage({ type: 'success', text: 'Отправлено анонимно ✨' });
-      // Запускаем кулдаун на 60 секунд
       setCooldown(60);
       const interval = setInterval(() => {
         setCooldown((prev) => {
@@ -77,7 +76,6 @@ export default function Home() {
           return prev - 1;
         });
       }, 1000);
-      // Скрываем сообщение через 3 секунды
       setTimeout(() => setMessage(null), 3000);
     }
     setLoading(false);
@@ -86,14 +84,47 @@ export default function Home() {
   useEffect(() => {
     loadWishes();
 
+    // Realtime: подписка на новые сообщения в таблице wishes
+    const channel = supabase
+      .channel('wishes-realtime')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'wishes' },
+        (payload) => {
+          const newWish = payload.new as any;
+          // Показываем только одобренные сообщения
+          if (newWish.is_approved) {
+            setWishes((prev) => {
+              // Проверяем, нет ли уже такого (чтобы не дублировать свои же)
+              if (prev.some((w) => w.id === newWish.id)) return prev;
+              return [newWish, ...prev];
+            });
+            // Подсвечиваем как новое
+            setNewIds((prev) => new Set(prev).add(newWish.id));
+            setTimeout(() => {
+              setNewIds((prev) => {
+                const copy = new Set(prev);
+                copy.delete(newWish.id);
+                return copy;
+              });
+            }, 5000);
+          }
+        }
+      )
+      .subscribe();
+
+    // Отслеживание курсора
     const handleMouseMove = (e: MouseEvent) => {
       setMousePos({ x: e.clientX, y: e.clientY });
     };
     window.addEventListener('mousemove', handleMouseMove);
-    return () => window.removeEventListener('mousemove', handleMouseMove);
+
+    return () => {
+      supabase.removeChannel(channel);
+      window.removeEventListener('mousemove', handleMouseMove);
+    };
   }, []);
 
-  // Прогресс кулдауна (0% → 100%)
   const cooldownProgress = cooldown > 0 ? ((60 - cooldown) / 60) * 100 : 0;
 
   return (
@@ -113,7 +144,7 @@ export default function Home() {
         }}
       />
 
-      {/* Маленькое красное свечение (поярче, но тоже мягкое) */}
+      {/* Маленькое красное свечение */}
       <div
         className="pointer-events-none fixed w-[300px] h-[300px] rounded-full"
         style={{
@@ -171,7 +202,7 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Красивый таймер кулдауна */}
+        {/* Таймер кулдауна */}
         {cooldown > 0 && (
           <div
             className="mb-6 bg-neutral-900/60 backdrop-blur-sm rounded-xl border border-red-500/20 p-4 overflow-hidden"
@@ -215,23 +246,35 @@ export default function Home() {
               Пока ничего нет.
             </p>
           )}
-          {wishes.map((wish, index) => (
-            <div
-              key={wish.id}
-              className="bg-neutral-900/60 backdrop-blur-sm rounded-xl border border-neutral-800 p-5 hover:border-red-500/30 hover:bg-neutral-900/80 transition-all duration-300 ease-out"
-              style={{
-                animation: `fadeInUp 0.5s ease-out ${index * 0.05}s both`,
-              }}
-            >
-              <p className="text-neutral-200 leading-relaxed">{wish.content}</p>
-              <div className="flex justify-between items-center mt-3 text-xs text-neutral-500 font-light">
-                <span>{new Date(wish.created_at).toLocaleString('ru-RU')}</span>
-                <span className="transition-colors duration-300 hover:text-red-400">
-                  ❤️ {wish.likes}
-                </span>
+          {wishes.map((wish, index) => {
+            const isNew = newIds.has(wish.id);
+            return (
+              <div
+                key={wish.id}
+                className={`backdrop-blur-sm rounded-xl border p-5 transition-all duration-500 ease-out ${
+                  isNew
+                    ? 'bg-red-500/5 border-red-500/40 shadow-lg shadow-red-500/10'
+                    : 'bg-neutral-900/60 border-neutral-800 hover:border-red-500/30 hover:bg-neutral-900/80'
+                }`}
+                style={{
+                  animation: `fadeInUp 0.5s ease-out ${isNew ? 0 : index * 0.05}s both`,
+                }}
+              >
+                {isNew && (
+                  <span className="inline-block text-[10px] text-red-400 border border-red-500/30 bg-red-500/10 px-2 py-0.5 rounded-full mb-2 uppercase tracking-wider">
+                    Новое
+                  </span>
+                )}
+                <p className="text-neutral-200 leading-relaxed">{wish.content}</p>
+                <div className="flex justify-between items-center mt-3 text-xs text-neutral-500 font-light">
+                  <span>{new Date(wish.created_at).toLocaleString('ru-RU')}</span>
+                  <span className="transition-colors duration-300 hover:text-red-400">
+                    ❤️ {wish.likes}
+                  </span>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
