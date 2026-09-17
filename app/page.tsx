@@ -14,6 +14,7 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [focused, setFocused] = useState(false);
   const [cooldown, setCooldown] = useState(0);
+  const [message, setMessage] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -33,6 +34,7 @@ export default function Home() {
   async function sendWish() {
     if (!text.trim() || text.length > 500 || cooldown > 0) return;
     setLoading(true);
+    setMessage(null);
 
     const { data: { user } } = await supabase.auth.getUser();
     let authorId = user?.id;
@@ -41,6 +43,7 @@ export default function Home() {
       const { data, error } = await supabase.auth.signInAnonymously();
       if (error) {
         console.error('Ошибка анонимного входа:', error);
+        setMessage({ type: 'error', text: 'Ошибка входа. Попробуй ещё раз.' });
         setLoading(false);
         return;
       }
@@ -55,13 +58,14 @@ export default function Home() {
     if (error) {
       console.error('Ошибка отправки:', error);
       if (error.message.includes('Слишком часто')) {
-        alert('Слишком часто! Подожди минуту.');
+        setMessage({ type: 'error', text: 'Слишком часто! Подожди минуту.' });
       } else {
-        alert('Не получилось отправить. Попробуй ещё раз.');
+        setMessage({ type: 'error', text: 'Не получилось отправить. Попробуй ещё раз.' });
       }
     } else {
       setText('');
       loadWishes();
+      setMessage({ type: 'success', text: 'Отправлено анонимно ✨' });
       // Запускаем кулдаун на 60 секунд
       setCooldown(60);
       const interval = setInterval(() => {
@@ -73,6 +77,8 @@ export default function Home() {
           return prev - 1;
         });
       }, 1000);
+      // Скрываем сообщение через 3 секунды
+      setTimeout(() => setMessage(null), 3000);
     }
     setLoading(false);
   }
@@ -86,6 +92,9 @@ export default function Home() {
     window.addEventListener('mousemove', handleMouseMove);
     return () => window.removeEventListener('mousemove', handleMouseMove);
   }, []);
+
+  // Прогресс кулдауна (0% → 100%)
+  const cooldownProgress = cooldown > 0 ? ((60 - cooldown) / 60) * 100 : 0;
 
   return (
     <main
@@ -127,7 +136,7 @@ export default function Home() {
 
         {/* Форма */}
         <div
-          className={`bg-neutral-900/70 backdrop-blur-sm rounded-2xl border transition-all duration-500 ease-out mb-12 ${
+          className={`bg-neutral-900/70 backdrop-blur-sm rounded-2xl border transition-all duration-500 ease-out mb-4 ${
             focused
               ? 'border-red-500/40 shadow-lg shadow-red-500/10 scale-[1.01]'
               : 'border-neutral-800'
@@ -141,7 +150,8 @@ export default function Home() {
             placeholder="Что ты хочешь сказать?"
             maxLength={500}
             rows={4}
-            className="w-full p-5 text-neutral-100 placeholder-neutral-500 resize-none focus:outline-none bg-transparent rounded-t-2xl transition-colors duration-300"
+            disabled={cooldown > 0}
+            className="w-full p-5 text-neutral-100 placeholder-neutral-500 resize-none focus:outline-none bg-transparent rounded-t-2xl transition-colors duration-300 disabled:opacity-50"
           />
           <div className="flex justify-between items-center px-5 py-3 border-t border-neutral-800">
             <span
@@ -156,17 +166,50 @@ export default function Home() {
               disabled={loading || !text.trim() || cooldown > 0}
               className="px-5 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-500 disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-300 ease-out"
             >
-              {loading
-                ? 'Отправка...'
-                : cooldown > 0
-                ? `Подожди ${cooldown}с`
-                : 'Отправить'}
+              {loading ? 'Отправка...' : cooldown > 0 ? 'Заблокировано' : 'Отправить'}
             </button>
           </div>
         </div>
 
+        {/* Красивый таймер кулдауна */}
+        {cooldown > 0 && (
+          <div
+            className="mb-6 bg-neutral-900/60 backdrop-blur-sm rounded-xl border border-red-500/20 p-4 overflow-hidden"
+            style={{ animation: 'fadeInUp 0.4s ease-out' }}
+          >
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-xs text-neutral-400 font-light">
+                Следующее сообщение через
+              </span>
+              <span className="text-sm text-red-400 font-medium tabular-nums">
+                {cooldown} сек
+              </span>
+            </div>
+            <div className="h-1 bg-neutral-800 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-red-600 to-red-400 rounded-full transition-all duration-1000 ease-linear"
+                style={{ width: `${cooldownProgress}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Сообщение об успехе/ошибке */}
+        {message && cooldown === 0 && (
+          <div
+            className={`mb-6 text-center text-sm font-light py-3 px-4 rounded-xl border transition-all duration-300 ${
+              message.type === 'success'
+                ? 'text-emerald-400 border-emerald-500/20 bg-emerald-500/5'
+                : 'text-red-400 border-red-500/20 bg-red-500/5'
+            }`}
+            style={{ animation: 'fadeInUp 0.4s ease-out' }}
+          >
+            {message.text}
+          </div>
+        )}
+
         {/* Лента */}
-        <div className="space-y-3">
+        <div className="space-y-3 mt-8">
           {wishes.length === 0 && (
             <p className="text-center text-neutral-600 text-sm py-12 font-light">
               Пока ничего нет.
