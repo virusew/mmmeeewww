@@ -17,6 +17,7 @@ export default function Home() {
   const [message, setMessage] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [newIds, setNewIds] = useState<Set<string>>(new Set());
+  const [copied, setCopied] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   async function loadWishes() {
@@ -30,6 +31,32 @@ export default function Home() {
       return;
     }
     setWishes(data || []);
+  }
+
+  function getShareUrl() {
+    if (typeof window === 'undefined') return '';
+    return window.location.origin;
+  }
+
+  function shareTo(platform: 'telegram' | 'whatsapp' | 'copy') {
+    const url = getShareUrl();
+    const text = 'Заходи на анонимную доску сообщений 🎓';
+
+    if (platform === 'telegram') {
+      window.open(
+        `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(text)}`,
+        '_blank'
+      );
+    } else if (platform === 'whatsapp') {
+      window.open(
+        `https://wa.me/?text=${encodeURIComponent(text + ' ' + url)}`,
+        '_blank'
+      );
+    } else {
+      navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   }
 
   async function sendWish() {
@@ -84,7 +111,6 @@ export default function Home() {
   useEffect(() => {
     loadWishes();
 
-    // Realtime: подписка на новые сообщения в таблице wishes
     const channel = supabase
       .channel('wishes-realtime')
       .on(
@@ -92,14 +118,11 @@ export default function Home() {
         { event: 'INSERT', schema: 'public', table: 'wishes' },
         (payload) => {
           const newWish = payload.new as any;
-          // Показываем только одобренные сообщения
           if (newWish.is_approved) {
             setWishes((prev) => {
-              // Проверяем, нет ли уже такого (чтобы не дублировать свои же)
               if (prev.some((w) => w.id === newWish.id)) return prev;
               return [newWish, ...prev];
             });
-            // Подсвечиваем как новое
             setNewIds((prev) => new Set(prev).add(newWish.id));
             setTimeout(() => {
               setNewIds((prev) => {
@@ -113,7 +136,6 @@ export default function Home() {
       )
       .subscribe();
 
-    // Отслеживание курсора
     const handleMouseMove = (e: MouseEvent) => {
       setMousePos({ x: e.clientX, y: e.clientY });
     };
@@ -132,7 +154,7 @@ export default function Home() {
       ref={containerRef}
       className="min-h-screen bg-gradient-to-br from-neutral-900 via-black to-neutral-800 relative overflow-hidden"
     >
-      {/* Большое красное свечение за курсором (слабое) */}
+      {/* Большое красное свечение за курсором */}
       <div
         className="pointer-events-none fixed w-[700px] h-[700px] rounded-full"
         style={{
@@ -158,11 +180,31 @@ export default function Home() {
 
       <div className="relative z-10 max-w-2xl mx-auto px-6 py-16">
 
-        {/* Заголовок */}
+        {/* Заголовок + кнопки шаринга */}
         <div className="text-center mb-12">
-          <h1 className="text-3xl font-light text-neutral-100 tracking-tight">
+          <h1 className="text-3xl font-light text-neutral-100 tracking-tight mb-4">
             Анонимные сообщения
           </h1>
+          <div className="flex justify-center gap-2 flex-wrap">
+            <button
+              onClick={() => shareTo('telegram')}
+              className="px-3 py-1.5 text-xs text-neutral-400 border border-neutral-800 rounded-lg hover:border-red-500/40 hover:text-red-400 transition-all duration-300"
+            >
+              Telegram
+            </button>
+            <button
+              onClick={() => shareTo('whatsapp')}
+              className="px-3 py-1.5 text-xs text-neutral-400 border border-neutral-800 rounded-lg hover:border-red-500/40 hover:text-red-400 transition-all duration-300"
+            >
+              WhatsApp
+            </button>
+            <button
+              onClick={() => shareTo('copy')}
+              className="px-3 py-1.5 text-xs text-neutral-400 border border-neutral-800 rounded-lg hover:border-red-500/40 hover:text-red-400 transition-all duration-300"
+            >
+              {copied ? 'Скопировано ✓' : 'Скопировать ссылку'}
+            </button>
+          </div>
         </div>
 
         {/* Форма */}
