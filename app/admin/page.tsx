@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -16,6 +17,13 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [replyTexts, setReplyTexts] = useState<Record<string, string>>({});
+  const [stats, setStats] = useState({
+    total: 0,
+    today: 0,
+    week: 0,
+    chartData: [] as { day: string; count: number }[],
+    topWords: [] as { word: string; count: number }[],
+  });
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -29,10 +37,7 @@ export default function AdminPage() {
   async function login() {
     setLoading(true);
     setError('');
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       setError(error.message);
       setLoading(false);
@@ -59,6 +64,53 @@ export default function AdminPage() {
       return;
     }
     setWishes(data || []);
+    computeStats(data || []);
+  }
+
+  function computeStats(list: any[]) {
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    const total = list.length;
+    const today = list.filter((w) => new Date(w.created_at) >= startOfDay).length;
+    const week = list.filter((w) => new Date(w.created_at) >= weekAgo).length;
+
+    // График за 7 дней
+    const chartData: { day: string; count: number }[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+      const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+      const count = list.filter((w) => {
+        const t = new Date(w.created_at);
+        return t >= dayStart && t < dayEnd;
+      }).length;
+      chartData.push({
+        day: d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }),
+        count,
+      });
+    }
+
+    // Топ-слова
+    const wordMap: Record<string, number> = {};
+    const stopWords = new Set(['это', 'что', 'как', 'для', 'или', 'быть', 'если', 'есть', 'ещё', 'еще', 'меня', 'мне', 'тебя', 'его', 'она', 'они', 'все', 'всё', 'так', 'там', 'тут', 'где', 'когда', 'почему', 'зачем', 'очень', 'просто', 'тоже', 'также', 'чтобы', 'можно', 'нужно', 'надо']);
+    list.forEach((w) => {
+      w.content
+        .toLowerCase()
+        .replace(/[^\wа-яё\s]/gi, '')
+        .split(/\s+/)
+        .filter((word: string) => word.length > 3 && !stopWords.has(word))
+        .forEach((word: string) => {
+          wordMap[word] = (wordMap[word] || 0) + 1;
+        });
+    });
+    const topWords = Object.entries(wordMap)
+      .map(([word, count]) => ({ word, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 12);
+
+    setStats({ total, today, week, chartData, topWords });
   }
 
   async function deleteWish(id: string) {
@@ -72,10 +124,7 @@ export default function AdminPage() {
   }
 
   async function toggleApprove(id: string, current: boolean) {
-    const { error } = await supabase
-      .from('wishes')
-      .update({ is_approved: !current })
-      .eq('id', id);
+    const { error } = await supabase.from('wishes').update({ is_approved: !current }).eq('id', id);
     if (error) {
       alert('Ошибка: ' + error.message);
       return;
@@ -96,7 +145,6 @@ export default function AdminPage() {
       alert('Ошибка: ' + error.message);
       return;
     }
-    // Очищаем поле ввода
     setReplyTexts((prev) => {
       const copy = { ...prev };
       delete copy[id];
@@ -109,9 +157,7 @@ export default function AdminPage() {
     return (
       <main className="min-h-screen bg-gray-900 flex items-center justify-center p-6">
         <div className="bg-gray-800 rounded-2xl p-8 w-full max-w-md">
-          <h1 className="text-3xl font-bold text-white mb-6 text-center">
-            🔐 Админ-панель
-          </h1>
+          <h1 className="text-3xl font-bold text-white mb-6 text-center">🔐 Админ-панель</h1>
           <input
             type="email"
             placeholder="Email"
@@ -155,6 +201,64 @@ export default function AdminPage() {
           </div>
         </div>
 
+        {/* Три карточки статистики */}
+        <div className="grid grid-cols-3 gap-3 mb-6">
+          <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
+            <div className="text-gray-400 text-xs mb-1">Всего</div>
+            <div className="text-white text-2xl font-bold">{stats.total}</div>
+          </div>
+          <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
+            <div className="text-gray-400 text-xs mb-1">Сегодня</div>
+            <div className="text-white text-2xl font-bold">{stats.today}</div>
+          </div>
+          <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
+            <div className="text-gray-400 text-xs mb-1">За неделю</div>
+            <div className="text-white text-2xl font-bold">{stats.week}</div>
+          </div>
+        </div>
+
+        {/* График за 7 дней */}
+        <div className="bg-gray-800 rounded-xl p-4 border border-gray-700 mb-6">
+          <div className="text-gray-400 text-xs mb-3">Активность за 7 дней</div>
+          <div style={{ width: '100%', height: 200 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={stats.chartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                <XAxis dataKey="day" stroke="#9CA3AF" fontSize={11} />
+                <YAxis stroke="#9CA3AF" fontSize={11} allowDecimals={false} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: '#1F2937',
+                    border: '1px solid #374151',
+                    borderRadius: '8px',
+                    color: '#fff',
+                  }}
+                  labelStyle={{ color: '#9CA3AF' }}
+                  formatter={(value: any) => [`${value} сообщ.`, '']}
+                />
+                <Bar dataKey="count" fill="#dc2626" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Топ-слова */}
+        {stats.topWords.length > 0 && (
+          <div className="bg-gray-800 rounded-xl p-4 border border-gray-700 mb-6">
+            <div className="text-gray-400 text-xs mb-3">Топ-слова</div>
+            <div className="flex flex-wrap gap-2">
+              {stats.topWords.map(({ word, count }) => (
+                <span
+                  key={word}
+                  className="px-2 py-1 bg-gray-700 text-gray-300 text-xs rounded-lg"
+                >
+                  {word} <span className="text-red-400 font-medium">{count}</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
         <p className="text-gray-400 mb-4">Всего сообщений: {wishes.length}</p>
 
         <div className="space-y-3">
@@ -190,7 +294,6 @@ export default function AdminPage() {
                 )}
               </div>
 
-              {/* Поле для ответа админа */}
               <div className="mt-3 pt-3 border-t border-gray-700">
                 <textarea
                   placeholder="Ответить анонимно (видно всем)..."
