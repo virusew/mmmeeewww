@@ -13,6 +13,7 @@ export default function Home() {
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(false);
   const [focused, setFocused] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -30,7 +31,7 @@ export default function Home() {
   }
 
   async function sendWish() {
-    if (!text.trim() || text.length > 500) return;
+    if (!text.trim() || text.length > 500 || cooldown > 0) return;
     setLoading(true);
 
     const { data: { user } } = await supabase.auth.getUser();
@@ -53,10 +54,25 @@ export default function Home() {
 
     if (error) {
       console.error('Ошибка отправки:', error);
-      alert('Не получилось отправить. Попробуй ещё раз.');
+      if (error.message.includes('Слишком часто')) {
+        alert('Слишком часто! Подожди минуту.');
+      } else {
+        alert('Не получилось отправить. Попробуй ещё раз.');
+      }
     } else {
       setText('');
       loadWishes();
+      // Запускаем кулдаун на 60 секунд
+      setCooldown(60);
+      const interval = setInterval(() => {
+        setCooldown((prev) => {
+          if (prev <= 1) {
+            clearInterval(interval);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
     }
     setLoading(false);
   }
@@ -137,10 +153,14 @@ export default function Home() {
             </span>
             <button
               onClick={sendWish}
-              disabled={loading || !text.trim()}
+              disabled={loading || !text.trim() || cooldown > 0}
               className="px-5 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-500 disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-300 ease-out"
             >
-              {loading ? 'Отправка...' : 'Отправить'}
+              {loading
+                ? 'Отправка...'
+                : cooldown > 0
+                ? `Подожди ${cooldown}с`
+                : 'Отправить'}
             </button>
           </div>
         </div>
