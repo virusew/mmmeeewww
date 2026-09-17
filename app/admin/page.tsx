@@ -401,8 +401,7 @@ export default function AdminPage() {
                   )}
                 </div>
 
-                {/* Панель ограничения */}
-                {isPanelOpen && (
+                {isPanelOpen && panel && (
                   <div
                     className={`mb-3 rounded-lg p-3 border ${
                       panel.mode === 'ban'
@@ -431,9 +430,7 @@ export default function AdminPage() {
                       </select>
                       <input
                         type="text"
-                        placeholder={
-                          panel.mode === 'ban' ? 'Причина бана' : 'Причина мута'
-                        }
+                        placeholder={panel.mode === 'ban' ? 'Причина бана' : 'Причина мута'}
                         value={reason}
                         onChange={(e) => setReason(e.target.value)}
                         className="flex-1 p-2 rounded-lg bg-gray-700 text-white text-sm placeholder-gray-400"
@@ -441,7 +438,7 @@ export default function AdminPage() {
                     </div>
                     <div className="flex gap-2">
                       <button
-                        onClick={() => applyRestriction(wish.author_id, panel.mode)}
+                        onClick={() => panel && applyRestriction(wish.author_id, panel.mode)}
                         className={`px-3 py-1 text-white rounded text-sm ${
                           panel.mode === 'ban'
                             ? 'bg-red-600 hover:bg-red-700'
@@ -451,10 +448,7 @@ export default function AdminPage() {
                         {panel.mode === 'ban' ? '🚫 Забанить' : '🔇 Замутить'}
                       </button>
                       <button
-                        onClick={() => {
-                          setPanel(null);
-                          setReason('');
-                        }}
+                        onClick={() => { setPanel(null); setReason(''); }}
                         className="px-3 py-1 bg-gray-600 text-white rounded text-sm hover:bg-gray-700"
                       >
                         Отмена

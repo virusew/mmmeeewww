@@ -91,7 +91,7 @@ export default function Home() {
     } else setRestriction(null);
   }
 
-  // ============= ПРОВЕРКА ТОКСИЧНОСТИ (через наш API-роут) =============
+  // ============= ПРОВЕРКА ТОКСИЧНОСТИ =============
   async function checkToxicity(content: string): Promise<{ ok: boolean; reason?: string }> {
     try {
       const res = await fetch('/api/moderate', {
@@ -156,7 +156,7 @@ export default function Home() {
     setLoading(true);
     setMessage(null);
 
-    // 🆕 ПРОВЕРКА ТОКСИЧНОСТИ (через OpenAI Moderation)
+    // ПРОВЕРКА ТОКСИЧНОСТИ
     const toxicity = await checkToxicity(text.trim());
     if (!toxicity.ok) {
       setMessage({ type: 'error', text: toxicity.reason || 'Сообщение заблокировано' });
@@ -175,6 +175,12 @@ export default function Home() {
         return;
       }
       authorId = data.user?.id;
+    }
+
+    if (!authorId) {
+      setMessage({ type: 'error', text: 'Ошибка авторизации. Обнови страницу.' });
+      setLoading(false);
+      return;
     }
 
     await checkRestriction(authorId);
