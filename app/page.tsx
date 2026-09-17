@@ -18,6 +18,11 @@ export default function Home() {
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [newIds, setNewIds] = useState<Set<string>>(new Set());
   const [copied, setCopied] = useState(false);
+  const [restriction, setRestriction] = useState<{
+    type: 'ban' | 'mute';
+    reason: string;
+    until: string | null;
+  } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   async function loadWishes() {
@@ -31,6 +36,49 @@ export default function Home() {
       return;
     }
     setWishes(data || []);
+  }
+
+  async function checkRestriction(userId: string) {
+    const { data, error } = await supabase
+      .from('bans')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('is_active', true)
+      .order('created_at', { ascending: false })
+      .limit(5);
+
+    if (error) {
+      console.error('Ошибка проверки:', error);
+      return;
+    }
+
+    if (data && data.length > 0) {
+      // Приоритет: бан > мут
+      const activeBan = data.find(
+        (b) => b.type === 'ban' && (!b.banned_until || new Date(b.banned_until) > new Date())
+      );
+      const activeMute = data.find(
+        (b) => b.type === 'mute' && (!b.banned_until || new Date(b.banned_until) > new Date())
+      );
+
+      if (activeBan) {
+        setRestriction({
+          type: 'ban',
+          reason: activeBan.reason,
+          until: activeBan.banned_until,
+        });
+      } else if (activeMute) {
+        setRestriction({
+          type: 'mute',
+          reason: activeMute.reason,
+          until: activeMute.banned_until,
+        });
+      } else {
+        setRestriction(null);
+      }
+    } else {
+      setRestriction(null);
+    }
   }
 
   function getShareUrl() {
@@ -60,7 +108,7 @@ export default function Home() {
   }
 
   async function sendWish() {
-    if (!text.trim() || text.length > 500 || cooldown > 0) return;
+    if (!text.trim() || text.length > 500 || cooldown > 0 || restriction) return;
     setLoading(true);
     setMessage(null);
 
@@ -78,6 +126,8 @@ export default function Home() {
       authorId = data.user?.id;
     }
 
+    await checkRestriction(authorId);
+
     const { error } = await supabase.from('wishes').insert({
       content: text.trim(),
       author_id: authorId,
@@ -85,7 +135,10 @@ export default function Home() {
 
     if (error) {
       console.error('Ошибка отправки:', error);
-      if (error.message.includes('Слишком часто')) {
+      if (error.message.includes('забанены') || error.message.includes('муте')) {
+        setMessage({ type: 'error', text: error.message });
+        await checkRestriction(authorId);
+      } else if (error.message.includes('Слишком часто')) {
         setMessage({ type: 'error', text: 'Слишком часто! Подожди минуту.' });
       } else {
         setMessage({ type: 'error', text: 'Не получилось отправить. Попробуй ещё раз.' });
@@ -111,6 +164,16 @@ export default function Home() {
   useEffect(() => {
     loadWishes();
 
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      let uid = user?.id;
+      if (!uid) {
+        const { data } = await supabase.auth.signInAnonymously();
+        uid = data.user?.id;
+      }
+      if (uid) await checkRestriction(uid);
+    })();
+
     const channel = supabase
       .channel('wishes-realtime')
       .on(
@@ -134,7 +197,6 @@ export default function Home() {
               }, 5000);
             }
           } else if (payload.eventType === 'UPDATE') {
-            // Обновляем сообщение (например, появился ответ админа)
             const updated = payload.new as any;
             setWishes((prev) =>
               prev.map((w) =>
@@ -160,6 +222,10 @@ export default function Home() {
   }, []);
 
   const cooldownProgress = cooldown > 0 ? ((60 - cooldown) / 60) * 100 : 0;
+
+  const restrictionUntilText = restriction?.until
+    ? new Date(restriction.until).toLocaleString('ru-RU')
+    : 'навсегда';
 
   return (
     <main
@@ -216,43 +282,92 @@ export default function Home() {
           </div>
         </div>
 
-        <div
-          className={`bg-neutral-900/70 backdrop-blur-sm rounded-2xl border transition-all duration-500 ease-out mb-4 ${
-            focused
-              ? 'border-red-500/40 shadow-lg shadow-red-500/10 scale-[1.01]'
-              : 'border-neutral-800'
-          }`}
-        >
-          <textarea
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
-            placeholder="Что ты хочешь сказать?"
-            maxLength={500}
-            rows={4}
-            disabled={cooldown > 0}
-            className="w-full p-5 text-neutral-100 placeholder-neutral-500 resize-none focus:outline-none bg-transparent rounded-t-2xl transition-colors duration-300 disabled:opacity-50"
-          />
-          <div className="flex justify-between items-center px-5 py-3 border-t border-neutral-800">
-            <span
-              className={`text-xs font-light transition-colors duration-300 ${
-                text.length > 450 ? 'text-orange-400' : 'text-neutral-500'
+        {/* Блок ограничения (бан или мут) */}
+        {restriction && (
+          <div
+            className={`mb-6 backdrop-blur-sm rounded-2xl border p-6 text-center ${
+              restriction.type === 'ban'
+                ? 'bg-red-950/40 border-red-500/40'
+                : 'bg-orange-950/30 border-orange-500/40'
+            }`}
+          >
+            <div className="text-3xl mb-2">
+              {restriction.type === 'ban' ? '🚫' : '🔇'}
+            </div>
+            <div
+              className={`font-medium mb-1 ${
+                restriction.type === 'ban' ? 'text-red-300' : 'text-orange-300'
               }`}
             >
-              {text.length}/500
-            </span>
-            <button
-              onClick={sendWish}
-              disabled={loading || !text.trim() || cooldown > 0}
-              className="px-5 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-500 disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-300 ease-out"
+              {restriction.type === 'ban'
+                ? 'Вы забанены'
+                : 'Вы в муте'}
+            </div>
+            <div
+              className={`text-sm mb-3 ${
+                restriction.type === 'ban' ? 'text-red-400/80' : 'text-orange-400/80'
+              }`}
             >
-              {loading ? 'Отправка...' : cooldown > 0 ? 'Заблокировано' : 'Отправить'}
-            </button>
+              {restriction.reason}
+            </div>
+            <div className="text-neutral-400 text-xs">
+              Разблокировка:{' '}
+              <span
+                className={`font-medium ${
+                  restriction.type === 'ban' ? 'text-red-400' : 'text-orange-400'
+                }`}
+              >
+                {restrictionUntilText}
+              </span>
+            </div>
+            {restriction.type === 'mute' && (
+              <div className="text-neutral-500 text-xs mt-2">
+                Вы можете читать сообщения, но не можете отправлять.
+              </div>
+            )}
           </div>
-        </div>
+        )}
 
-        {cooldown > 0 && (
+        {/* Форма (скрывается при бане, но не при муте!) */}
+        {!restriction && (
+          <div
+            className={`bg-neutral-900/70 backdrop-blur-sm rounded-2xl border transition-all duration-500 ease-out mb-4 ${
+              focused
+                ? 'border-red-500/40 shadow-lg shadow-red-500/10 scale-[1.01]'
+                : 'border-neutral-800'
+            }`}
+          >
+            <textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              placeholder="Что ты хочешь сказать?"
+              maxLength={500}
+              rows={4}
+              disabled={cooldown > 0}
+              className="w-full p-5 text-neutral-100 placeholder-neutral-500 resize-none focus:outline-none bg-transparent rounded-t-2xl transition-colors duration-300 disabled:opacity-50"
+            />
+            <div className="flex justify-between items-center px-5 py-3 border-t border-neutral-800">
+              <span
+                className={`text-xs font-light transition-colors duration-300 ${
+                  text.length > 450 ? 'text-orange-400' : 'text-neutral-500'
+                }`}
+              >
+                {text.length}/500
+              </span>
+              <button
+                onClick={sendWish}
+                disabled={loading || !text.trim() || cooldown > 0}
+                className="px-5 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-500 disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-300 ease-out"
+              >
+                {loading ? 'Отправка...' : cooldown > 0 ? 'Заблокировано' : 'Отправить'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {cooldown > 0 && !restriction && (
           <div
             className="mb-6 bg-neutral-900/60 backdrop-blur-sm rounded-xl border border-red-500/20 p-4 overflow-hidden"
             style={{ animation: 'fadeInUp 0.4s ease-out' }}
@@ -274,7 +389,7 @@ export default function Home() {
           </div>
         )}
 
-        {message && cooldown === 0 && (
+        {message && cooldown === 0 && !restriction && (
           <div
             className={`mb-6 text-center text-sm font-light py-3 px-4 rounded-xl border transition-all duration-300 ${
               message.type === 'success'
@@ -314,7 +429,6 @@ export default function Home() {
                 )}
                 <p className="text-neutral-200 leading-relaxed">{wish.content}</p>
 
-                {/* Ответ администрации */}
                 {wish.admin_reply && (
                   <div className="mt-3 pl-4 border-l-2 border-red-500/40">
                     <div className="text-[10px] text-red-400 uppercase tracking-wider mb-1">
