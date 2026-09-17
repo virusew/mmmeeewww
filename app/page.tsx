@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
@@ -12,6 +12,9 @@ export default function Home() {
   const [wishes, setWishes] = useState<any[]>([]);
   const [text, setText] = useState('');
   const [loading, setLoading] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+  const containerRef = useRef<HTMLDivElement>(null);
 
   async function loadWishes() {
     const { data, error } = await supabase
@@ -19,7 +22,6 @@ export default function Home() {
       .select('*')
       .order('created_at', { ascending: false })
       .limit(50);
-    
     if (error) {
       console.error('Ошибка загрузки:', error);
       return;
@@ -29,12 +31,11 @@ export default function Home() {
 
   async function sendWish() {
     if (!text.trim() || text.length > 500) return;
-    
     setLoading(true);
-    
+
     const { data: { user } } = await supabase.auth.getUser();
     let authorId = user?.id;
-    
+
     if (!authorId) {
       const { data, error } = await supabase.auth.signInAnonymously();
       if (error) {
@@ -57,65 +58,132 @@ export default function Home() {
       setText('');
       loadWishes();
     }
-    
     setLoading(false);
   }
 
   useEffect(() => {
     loadWishes();
+
+    const handleMouseMove = (e: MouseEvent) => {
+      setMousePos({ x: e.clientX, y: e.clientY });
+    };
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
   }, []);
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-indigo-500 via-purple-500 to-pink-500 p-6">
-      <div className="max-w-2xl mx-auto">
-        <h1 className="text-4xl font-bold text-white text-center mb-2">
-          🎓 Желания колледжа
-        </h1>
-        <p className="text-white/80 text-center mb-8">
-          Анонимно. Честно. Без имён.
-        </p>
+    <main
+      ref={containerRef}
+      className="min-h-screen bg-gradient-to-br from-neutral-900 via-black to-neutral-800 relative overflow-hidden"
+    >
+      {/* Большое красное свечение за курсором (слабое) */}
+      <div
+        className="pointer-events-none fixed w-[700px] h-[700px] rounded-full"
+        style={{
+          left: mousePos.x - 350,
+          top: mousePos.y - 350,
+          background:
+            'radial-gradient(circle, rgba(255,60,60,0.07) 0%, rgba(255,60,60,0.02) 40%, transparent 70%)',
+          filter: 'blur(50px)',
+        }}
+      />
 
-        <div className="bg-white/10 backdrop-blur-md rounded-2xl p-6 mb-8 border border-white/20">
+      {/* Маленькое красное свечение (поярче, но тоже мягкое) */}
+      <div
+        className="pointer-events-none fixed w-[300px] h-[300px] rounded-full"
+        style={{
+          left: mousePos.x - 150,
+          top: mousePos.y - 150,
+          background:
+            'radial-gradient(circle, rgba(255,80,80,0.10) 0%, transparent 60%)',
+          filter: 'blur(40px)',
+        }}
+      />
+
+      <div className="relative z-10 max-w-2xl mx-auto px-6 py-16">
+
+        {/* Заголовок */}
+        <div className="text-center mb-12">
+          <h1 className="text-3xl font-light text-neutral-100 tracking-tight">
+            Анонимные сообщения
+          </h1>
+        </div>
+
+        {/* Форма */}
+        <div
+          className={`bg-neutral-900/70 backdrop-blur-sm rounded-2xl border transition-all duration-500 ease-out mb-12 ${
+            focused
+              ? 'border-red-500/40 shadow-lg shadow-red-500/10 scale-[1.01]'
+              : 'border-neutral-800'
+          }`}
+        >
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="Что ты хочешь? Напиши анонимно..."
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            placeholder="Что ты хочешь сказать?"
             maxLength={500}
-            rows={3}
-            className="w-full p-4 rounded-xl bg-white/90 text-gray-900 placeholder-gray-500 resize-none focus:outline-none focus:ring-2 focus:ring-white"
+            rows={4}
+            className="w-full p-5 text-neutral-100 placeholder-neutral-500 resize-none focus:outline-none bg-transparent rounded-t-2xl transition-colors duration-300"
           />
-          <div className="flex justify-between items-center mt-3">
-            <span className="text-white/70 text-sm">{text.length}/500</span>
+          <div className="flex justify-between items-center px-5 py-3 border-t border-neutral-800">
+            <span
+              className={`text-xs font-light transition-colors duration-300 ${
+                text.length > 450 ? 'text-orange-400' : 'text-neutral-500'
+              }`}
+            >
+              {text.length}/500
+            </span>
             <button
               onClick={sendWish}
               disabled={loading || !text.trim()}
-              className="px-6 py-2 bg-white text-purple-600 font-semibold rounded-xl hover:bg-white/90 disabled:opacity-50 disabled:cursor-not-allowed transition"
+              className="px-5 py-2 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-500 disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-300 ease-out"
             >
-              {loading ? 'Отправка...' : 'Отправить анонимно'}
+              {loading ? 'Отправка...' : 'Отправить'}
             </button>
           </div>
         </div>
 
-        <div className="space-y-4">
+        {/* Лента */}
+        <div className="space-y-3">
           {wishes.length === 0 && (
-            <p className="text-white/60 text-center py-10">
-              Пока желаний нет. Будь первым! ✨
+            <p className="text-center text-neutral-600 text-sm py-12 font-light">
+              Пока ничего нет.
             </p>
           )}
-          {wishes.map((wish) => (
+          {wishes.map((wish, index) => (
             <div
               key={wish.id}
-              className="bg-white/10 backdrop-blur-md rounded-2xl p-5 border border-white/20 hover:bg-white/20 transition"
+              className="bg-neutral-900/60 backdrop-blur-sm rounded-xl border border-neutral-800 p-5 hover:border-red-500/30 hover:bg-neutral-900/80 transition-all duration-300 ease-out"
+              style={{
+                animation: `fadeInUp 0.5s ease-out ${index * 0.05}s both`,
+              }}
             >
-              <p className="text-white text-lg">{wish.content}</p>
-              <div className="flex justify-between items-center mt-3 text-white/60 text-sm">
+              <p className="text-neutral-200 leading-relaxed">{wish.content}</p>
+              <div className="flex justify-between items-center mt-3 text-xs text-neutral-500 font-light">
                 <span>{new Date(wish.created_at).toLocaleString('ru-RU')}</span>
-                <span>❤️ {wish.likes}</span>
+                <span className="transition-colors duration-300 hover:text-red-400">
+                  ❤️ {wish.likes}
+                </span>
               </div>
             </div>
           ))}
         </div>
       </div>
+
+      <style jsx global>{`
+        @keyframes fadeInUp {
+          from {
+            opacity: 0;
+            transform: translateY(10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
+      `}</style>
     </main>
   );
 }
